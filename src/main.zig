@@ -1,0 +1,126 @@
+const std = @import("std");
+const builtin = @import("builtin");
+const windows = std.os.windows;
+const ArrayList = std.ArrayList;
+
+const CHAR = u8;
+const LPCSTR = [*:0]const CHAR;
+const DWORD = windows.DWORD;
+const HANDLE = windows.HANDLE;
+const SECURITY_ATTRIBUTES = windows.SECURITY_ATTRIBUTES;
+const WINAPI = windows.WINAPI;
+const SIZE_T = windows.SIZE_T;
+const LPVOID = windows.LPVOID;
+const LPCVOID = windows.LPCVOID;
+const BOOL = windows.BOOL;
+const LARGE_INTEGER = windows.LARGE_INTEGER;
+
+const GENERIC_READ = windows.GENERIC_READ;
+const GENERIC_WRITE = windows.GENERIC_WRITE;
+
+const PAGE_READONLY = windows.PAGE_READONLY;
+const PAGE_READWRITE = windows.PAGE_READWRITE;
+
+const CREATE_NEW: DWORD = 1;
+const CREATE_ALWAYS: DWORD = 2;
+const OPEN_EXISTING: DWORD = 3;
+const OPEN_ALWAYS: DWORD = 4;
+const TRUNCATE_EXISTING: DWORD = 5;
+
+const FILE_MAP_READ: DWORD = 4;
+const FILE_MAP_WRITE: DWORD = 2;
+
+const FILE_ATTRIBUTE_NORMAL = windows.FILE_ATTRIBUTE_NORMAL;
+
+const INVALID_HANDLE_VALUE = windows.INVALID_HANDLE_VALUE;
+
+extern "kernel32" fn CreateFileA(lpFileName: LPCSTR, dwDesiredAccess: DWORD, dwShareMode: DWORD, lpSecurityAttributes: ?*SECURITY_ATTRIBUTES, dwCreationDisposition: DWORD, dwFlagsAndAttributes: DWORD, hTemplateFil: ?HANDLE) callconv(WINAPI) HANDLE;
+extern "kernel32" fn CreateFileMappingA(hFile: HANDLE, lpFileMappingAttributes: ?*SECURITY_ATTRIBUTES, flProtect: DWORD, dwMaximumSizeHigh: DWORD, dwMaximumSizeLow: DWORD, lpNam: ?LPCSTR) callconv(WINAPI) ?HANDLE;
+extern "kernel32" fn MapViewOfFile(hFileMappingObject: HANDLE, dwDesiredAccess: DWORD, dwFileOffsetHigh: DWORD, dwFileOffsetLow: DWORD, dwNumberOfBytesToMa: SIZE_T) callconv(WINAPI) LPVOID;
+extern "kernel32" fn UnmapViewOfFile(lpBaseAddress: LPCVOID) callconv(WINAPI) BOOL;
+
+const CloseHandle = windows.kernel32.CloseHandle;
+const GetFileSizeEx = windows.kernel32.GetFileSizeEx;
+
+pub const Options = struct {
+    file_name: [*:0]const u8,
+    read: bool = true,
+    write: bool = false,
+    size: usize = 0,
+};
+
+const MemMapperError = error{
+    CouldNotOpenFile,
+    CouldNotMapFile,
+};
+
+pub const MemMapper = struct {
+    allocator: std.mem.Allocator,
+    options: Options,
+    file: HANDLE,
+    file_mapping: HANDLE,
+    mappings: ArrayList(LPVOID),
+
+    pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapper {
+        var access: DWORD = 0;
+        if (options.read) {
+            access += GENERIC_READ;
+        }
+        if (options.write) {
+            access += GENERIC_WRITE;
+        }
+
+        const file: HANDLE = CreateFileA(options.file_name, access, 0, null, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, null);
+        if (file == INVALID_HANDLE_VALUE) {
+            return MemMapperError.CouldNotOpenFile;
+        }
+        errdefer _ = CloseHandle(file);
+
+        var protection: DWORD = 0;
+        if (options.write) {
+            protection = PAGE_READWRITE;
+        } else {
+            protection = PAGE_READONLY;
+        }
+
+        const file_mapping = CreateFileMappingA(file, null, protection, 0, 0, null);
+        if (file_mapping == null) {
+            return MemMapperError.CouldNotMapFile;
+        }
+
+        return .{
+            .allocator = allocator,
+            .options = options,
+            .file = file,
+            .file_mapping = file_mapping.?,
+            .mappings = ArrayList(LPVOID).init(allocator),
+        };
+    }
+
+    pub fn free(self: *MemMapper) void {
+        _ = CloseHandle(self.file_mapping);
+        _ = CloseHandle(self.file);
+        self.mappings.deinit();
+    }
+
+    //pub fn map(self:*MemMapper, comptime T: type, start: usize, len: usize) []T {}
+
+    pub fn map(self: *MemMapper) []u8 {
+        const addr: [*]u8 = @ptrCast(MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, 0));
+        var size: LARGE_INTEGER = 0;
+        _ = GetFileSizeEx(self.file, &size);
+        return addr[0..@intCast(size)];
+    }
+
+    //pub fn unmap(memory: anytype) void {}
+};
+
+pub fn main() !void {
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa = general_purpose_allocator.allocator();
+    var mapper: MemMapper = try MemMapper.init(gpa, .{ .file_name = "test.txt" });
+    defer mapper.free();
+
+    const tst: []u8 = mapper.map();
+    std.debug.print(">{s}< {d}\n", .{ tst, tst.len });
+}
