@@ -103,16 +103,23 @@ pub const MemMapper = struct {
         self.mappings.deinit();
     }
 
-    //pub fn map(self:*MemMapper, comptime T: type, start: usize, len: usize) []T {}
-
-    pub fn map(self: *MemMapper) []u8 {
-        const addr: [*]u8 = @ptrCast(MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, 0));
-        var size: LARGE_INTEGER = 0;
-        _ = GetFileSizeEx(self.file, &size);
-        return addr[0..@intCast(size)];
+    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) []T {
+        //todo: use GetSystemInfo to get SYSTEM_INFO; Start offset must be a multiple of SYSTEM_INFO.dwAllocationGranularity
+        const addr: [*]T = @ptrCast(MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, len));
+        var end: usize = start + len;
+        if (len == 0) {
+            var size: LARGE_INTEGER = @intCast(len);
+            _ = GetFileSizeEx(self.file, &size);
+            end = start + @as(usize, @intCast(size));
+        }
+        std.debug.print("{d},{d}\n", .{ start, end });
+        return addr[0..end];
     }
 
-    //pub fn unmap(memory: anytype) void {}
+    pub fn unmap(self: *MemMapper, memory: anytype) void {
+        _ = self;
+        _ = UnmapViewOfFile(@constCast(std.mem.sliceAsBytes(memory).ptr));
+    }
 };
 
 pub fn main() !void {
@@ -121,6 +128,8 @@ pub fn main() !void {
     var mapper: MemMapper = try MemMapper.init(gpa, .{ .file_name = "test.txt" });
     defer mapper.free();
 
-    const tst: []u8 = mapper.map();
+    const tst: []u8 = mapper.map(u8, 0, 0);
+    defer mapper.unmap(tst);
+
     std.debug.print(">{s}< {d}\n", .{ tst, tst.len });
 }
