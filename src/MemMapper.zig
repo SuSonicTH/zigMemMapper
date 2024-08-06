@@ -187,7 +187,7 @@ pub const MemMapperPosix = struct {
     }
 };
 
-pub fn main() !void {
+test "simple mapping for reading" {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
     var mapper = try init(gpa, .{ .file_name = "test.txt" });
