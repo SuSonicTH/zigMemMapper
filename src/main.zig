@@ -55,13 +55,43 @@ const MemMapperError = error{
 };
 
 pub const MemMapper = struct {
+    impl: *anyopaque,
+
+    pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapper {
+        if (builtin.os.tag == .windows) {
+            return .{
+                .impl = @constCast(&(try MemMapperWindows.init(allocator, options))),
+            };
+        }
+    }
+
+    pub fn deinit(self: *MemMapper) void {
+        if (builtin.os.tag == .windows) {
+            return MemMapperWindows.deinit(@ptrCast(@alignCast(self.impl)));
+        }
+    }
+
+    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) []T {
+        if (builtin.os.tag == .windows) {
+            return MemMapperWindows.map(@ptrCast(@alignCast(self.impl)), T, start, len);
+        }
+    }
+
+    pub fn unmap(self: *MemMapper, memory: anytype) void {
+        if (builtin.os.tag == .windows) {
+            return MemMapperWindows.unmap(@ptrCast(@alignCast(self.impl)), memory);
+        }
+    }
+};
+
+pub const MemMapperWindows = struct {
     allocator: std.mem.Allocator,
     options: Options,
     file: HANDLE,
     file_mapping: HANDLE,
     mappings: ArrayList(LPVOID),
 
-    pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapper {
+    pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapperWindows {
         var access: DWORD = 0;
         if (options.read) {
             access += GENERIC_READ;
@@ -97,13 +127,13 @@ pub const MemMapper = struct {
         };
     }
 
-    pub fn free(self: *MemMapper) void {
+    pub fn deinit(self: *MemMapperWindows) void {
         _ = CloseHandle(self.file_mapping);
         _ = CloseHandle(self.file);
         self.mappings.deinit();
     }
 
-    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) []T {
+    pub fn map(self: *MemMapperWindows, comptime T: type, start: usize, len: usize) []T {
         //todo: use GetSystemInfo to get SYSTEM_INFO; Start offset must be a multiple of SYSTEM_INFO.dwAllocationGranularity
         const addr: [*]T = @ptrCast(MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, len));
         var end: usize = start + len;
@@ -116,7 +146,7 @@ pub const MemMapper = struct {
         return addr[0..end];
     }
 
-    pub fn unmap(self: *MemMapper, memory: anytype) void {
+    pub fn unmap(self: *MemMapperWindows, memory: anytype) void {
         _ = self;
         _ = UnmapViewOfFile(@constCast(std.mem.sliceAsBytes(memory).ptr));
     }
@@ -126,7 +156,7 @@ pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
     var mapper: MemMapper = try MemMapper.init(gpa, .{ .file_name = "test.txt" });
-    defer mapper.free();
+    defer mapper.deinit();
 
     const tst: []u8 = mapper.map(u8, 0, 0);
     defer mapper.unmap(tst);
