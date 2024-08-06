@@ -65,11 +65,11 @@ const MemMapper = union(enum) {
     pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapper {
         if (builtin.os.tag == .windows) {
             return .{
-                .mem_mapper_windows = (try MemMapperWindows.init(allocator, options)),
+                .mem_mapper_windows = try MemMapperWindows.init(allocator, options),
             };
         } else {
             return .{
-                .mem_mapper_posix = (try MemMapperPosix.init(allocator, options)),
+                .mem_mapper_posix = try MemMapperPosix.init(allocator, options),
             };
         }
     }
@@ -93,7 +93,7 @@ const MemMapper = union(enum) {
     }
 };
 
-pub const MemMapperWindows = struct {
+const MemMapperWindows = struct {
     allocator: std.mem.Allocator,
     options: Options,
     file: HANDLE,
