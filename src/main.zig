@@ -54,32 +54,41 @@ const MemMapperError = error{
     CouldNotMapFile,
 };
 
-pub const MemMapper = struct {
-    impl: *anyopaque,
+pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapper {
+    return MemMapper.init(allocator, options);
+}
+
+const MemMapper = union(enum) {
+    mem_mapper_windows: MemMapperWindows,
+    mem_mapper_posix: MemMapperPosix,
 
     pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapper {
         if (builtin.os.tag == .windows) {
             return .{
-                .impl = @constCast(&(try MemMapperWindows.init(allocator, options))),
+                .mem_mapper_windows = (try MemMapperWindows.init(allocator, options)),
+            };
+        } else {
+            return .{
+                .mem_mapper_posix = (try MemMapperPosix.init(allocator, options)),
             };
         }
     }
 
     pub fn deinit(self: *MemMapper) void {
-        if (builtin.os.tag == .windows) {
-            return MemMapperWindows.deinit(@ptrCast(@alignCast(self.impl)));
+        switch (self.*) {
+            inline else => |*case| return case.deinit(),
         }
     }
 
-    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) []T {
-        if (builtin.os.tag == .windows) {
-            return MemMapperWindows.map(@ptrCast(@alignCast(self.impl)), T, start, len);
+    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) ?[]T {
+        switch (self.*) {
+            inline else => |*case| return case.map(T, start, len),
         }
     }
 
     pub fn unmap(self: *MemMapper, memory: anytype) void {
-        if (builtin.os.tag == .windows) {
-            return MemMapperWindows.unmap(@ptrCast(@alignCast(self.impl)), memory);
+        switch (self.*) {
+            inline else => |*case| return case.unmap(memory),
         }
     }
 };
@@ -133,7 +142,7 @@ pub const MemMapperWindows = struct {
         self.mappings.deinit();
     }
 
-    pub fn map(self: *MemMapperWindows, comptime T: type, start: usize, len: usize) []T {
+    pub fn map(self: *MemMapperWindows, comptime T: type, start: usize, len: usize) ?[]T {
         //todo: use GetSystemInfo to get SYSTEM_INFO; Start offset must be a multiple of SYSTEM_INFO.dwAllocationGranularity
         const addr: [*]T = @ptrCast(MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, len));
         var end: usize = start + len;
@@ -152,13 +161,39 @@ pub const MemMapperWindows = struct {
     }
 };
 
+pub const MemMapperPosix = struct {
+    allocator: std.mem.Allocator,
+    options: Options,
+
+    pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapperPosix {
+        return .{
+            .allocator = allocator,
+            .options = options,
+        };
+    }
+    pub fn deinit(self: *MemMapperPosix) void {
+        _ = self;
+    }
+    pub fn map(self: *MemMapperPosix, comptime T: type, start: usize, len: usize) ?[]T {
+        _ = self;
+        _ = start;
+        _ = len;
+        return null;
+    }
+
+    pub fn unmap(self: *MemMapperPosix, memory: anytype) void {
+        _ = self;
+        _ = memory;
+    }
+};
+
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
-    var mapper: MemMapper = try MemMapper.init(gpa, .{ .file_name = "test.txt" });
+    var mapper = try init(gpa, .{ .file_name = "test.txt" });
     defer mapper.deinit();
 
-    const tst: []u8 = mapper.map(u8, 0, 0);
+    const tst = mapper.map(u8, 0, 0).?;
     defer mapper.unmap(tst);
 
     std.debug.print(">{s}< {d}\n", .{ tst, tst.len });
