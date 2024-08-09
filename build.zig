@@ -4,14 +4,11 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib = b.addStaticLibrary(.{
-        .name = "MemMapper",
+    _ = b.addModule("zigStringUtil", .{
         .root_source_file = b.path("src/MemMapper.zig"),
         .target = target,
         .optimize = optimize,
     });
-
-    b.installArtifact(lib);
 
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/MemMapper.zig"),
