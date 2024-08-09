@@ -5,36 +5,69 @@ pub const MemMapperError = error{
     CouldNotMapFile,
 };
 
-const MemMpperImpl = switch (builtin.os.tag) {
-    .windows => @import("MemMapperWindows.zig").MemMapper,
-    else => @import("MemMapperPosix.zig").MemMapper,
-};
-
 pub fn init(file: std.fs.File, writeable: bool) !MemMapper {
     return MemMapper.init(file, writeable);
 }
 
-pub const MemMapper = struct {
-    impl: MemMpperImpl = undefined,
+const MemMapper = struct {
+    file: std.fs.File,
+    file_mapping: windows.HANDLE = undefined,
 
     pub fn init(file: std.fs.File, writeable: bool) !MemMapper {
-        return .{
-            .impl = (try MemMpperImpl.init(file, writeable)),
-        };
+        if (builtin.os.tag == .windows) {
+            const protection: windows.DWORD = if (writeable) windows.PAGE_READWRITE else windows.PAGE_READONLY;
+            const file_mapping = CreateFileMappingA(file.handle, null, protection, 0, 0, null);
+            if (file_mapping == null) {
+                return MemMapperError.CouldNotMapFile;
+            }
+
+            return .{
+                .file = file,
+                .file_mapping = file_mapping.?,
+            };
+        } else {
+            return .{
+                .file = file,
+            };
+        }
     }
 
     pub fn deinit(self: *MemMapper) void {
-        self.impl.deinit();
+        if (builtin.os.tag == .windows) {
+            _ = CloseHandle(self.file_mapping);
+        }
     }
 
     pub fn map(self: *MemMapper, comptime T: type, offset: usize, size: usize) ![]T {
-        return self.impl.map(T, offset, size);
+        const len = if (size != 0) size else (try self.file.metadata()).size();
+        if (builtin.os.tag == .windows) {
+            const ptr: [*]T = @ptrCast(MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, len));
+            return ptr[0..len];
+        } else {
+            return @ptrCast(try std.posix.mmap(null, len, std.posix.PROT.READ, .{ .TYPE = .SHARED }, self.file.handle, offset));
+        }
     }
 
     pub fn unmap(self: *MemMapper, memory: anytype) void {
-        self.impl.unmap(memory);
+        _ = self;
+        if (builtin.os.tag == .windows) {
+            _ = UnmapViewOfFile(@constCast(std.mem.sliceAsBytes(memory).ptr));
+        } else {
+            std.posix.munmap(@alignCast(memory));
+        }
     }
 };
+
+const windows = std.os.windows;
+
+const FILE_MAP_READ: windows.DWORD = 4;
+const FILE_MAP_WRITE: windows.DWORD = 2;
+
+extern "kernel32" fn CreateFileMappingA(hFile: windows.HANDLE, lpFileMappingAttributes: ?*windows.SECURITY_ATTRIBUTES, flProtect: windows.DWORD, dwMaximumSizeHigh: windows.DWORD, dwMaximumSizeLow: windows.DWORD, lpNam: ?windows.LPCSTR) callconv(windows.WINAPI) ?windows.HANDLE;
+extern "kernel32" fn MapViewOfFile(hFileMappingObject: windows.HANDLE, dwDesiredAccess: windows.DWORD, dwFileOffsetHigh: windows.DWORD, dwFileOffsetLow: windows.DWORD, dwNumberOfBytesToMa: windows.SIZE_T) callconv(windows.WINAPI) windows.LPVOID;
+extern "kernel32" fn UnmapViewOfFile(lpBaseAddress: windows.LPCVOID) callconv(windows.WINAPI) windows.BOOL;
+
+const CloseHandle = windows.kernel32.CloseHandle;
 
 const testing = std.testing;
 
