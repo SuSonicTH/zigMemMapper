@@ -47,7 +47,8 @@ const MemMapperError = parent.MemMapperError;
 const Super = parent.MemMapper;
 
 pub const MemMapper = struct {
-    file: HANDLE,
+    //file: HANDLE,
+    file: std.fs.File,
     file_mapping: HANDLE,
     mappings: ArrayList(LPVOID),
 
@@ -60,12 +61,16 @@ pub const MemMapper = struct {
             access += GENERIC_WRITE;
         }
 
-        const file: HANDLE = CreateFileA(super.options.file_name, access, 0, null, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, null);
-        if (file == INVALID_HANDLE_VALUE) {
-            return MemMapperError.CouldNotOpenFile;
-        }
-        errdefer _ = CloseHandle(file);
-
+        //const file: HANDLE = CreateFileA(super.options.file_name, access, 0, null, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, null);
+        //if (file == INVALID_HANDLE_VALUE) {
+        //    return MemMapperError.CouldNotOpenFile;
+        //}
+        //errdefer _ = CloseHandle(file);
+        const file = try std.fs.cwd().createFile(super.options.file_name, .{
+            .read = true,
+            .truncate = false,
+            .exclusive = false,
+        });
         var protection: DWORD = 0;
         if (super.options.write) {
             protection = PAGE_READWRITE;
@@ -73,7 +78,7 @@ pub const MemMapper = struct {
             protection = PAGE_READONLY;
         }
 
-        const file_mapping = CreateFileMappingA(file, null, protection, 0, 0, null);
+        const file_mapping = CreateFileMappingA(file.handle, null, protection, 0, 0, null);
         if (file_mapping == null) {
             return MemMapperError.CouldNotMapFile;
         }
@@ -87,18 +92,17 @@ pub const MemMapper = struct {
 
     pub fn deinit(self: *MemMapper) void {
         _ = CloseHandle(self.file_mapping);
-        _ = CloseHandle(self.file);
+        //_ = CloseHandle(self.file);
+        self.file.close();
         self.mappings.deinit();
     }
 
-    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) ?[]T {
+    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) ![]T {
         //todo: use GetSystemInfo to get SYSTEM_INFO; Start offset must be a multiple of SYSTEM_INFO.dwAllocationGranularity
         const addr: [*]T = @ptrCast(MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, len));
         var end: usize = start + len;
         if (len == 0) {
-            var size: LARGE_INTEGER = @intCast(len);
-            _ = GetFileSizeEx(self.file, &size);
-            end = start + @as(usize, @intCast(size));
+            end = (try self.file.metadata()).size();
         }
         std.debug.print("{d},{d}\n", .{ start, end });
         return addr[0..end];

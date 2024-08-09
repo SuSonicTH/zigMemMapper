@@ -2,7 +2,7 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 pub const Options = struct {
-    file_name: [*:0]const u8,
+    file_name: []const u8,
     read: bool = true,
     write: bool = false,
     size: usize = 0,
@@ -40,7 +40,7 @@ pub const MemMapper = struct {
         self.impl.deinit();
     }
 
-    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) ?[]T {
+    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) ![]T {
         return self.impl.map(T, start, len);
     }
 
@@ -49,14 +49,17 @@ pub const MemMapper = struct {
     }
 };
 
+const testing = std.testing;
+
 test "simple mapping for reading" {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
     var mapper = try init(gpa, .{ .file_name = "test.txt" });
     defer mapper.deinit();
 
-    const tst = mapper.map(u8, 0, 0).?;
+    const tst = try mapper.map(u8, 0, 0);
     defer mapper.unmap(tst);
 
-    std.debug.print(">{s}< {d}\n", .{ tst, tst.len });
+    try testing.expectEqualStrings("This is a Test", tst);
+    try testing.expectEqual(14, tst.len);
 }

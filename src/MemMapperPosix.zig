@@ -6,22 +6,32 @@ const MemMapperError = parent.MemMapperError;
 const Super = parent.MemMapper;
 
 pub const MemMapper = struct {
+    file: std.fs.File = undefined,
+
     pub fn init(super: Super) !MemMapper {
-        _ = super;
-        return .{};
+        return .{
+            .file = try std.fs.cwd().createFile(super.options.file_name, .{
+                .read = true,
+                .truncate = false,
+                .exclusive = false,
+            }),
+        };
     }
+
     pub fn deinit(self: *MemMapper) void {
-        _ = self;
+        self.file.close();
     }
-    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) ?[]T {
-        _ = self;
-        _ = start;
-        _ = len;
-        return null;
+
+    pub fn map(self: *MemMapper, comptime T: type, start: usize, len: usize) ![]T {
+        var size = len;
+        if (len == 0) {
+            size = (try self.file.metadata()).size();
+        }
+        return @ptrCast(try std.posix.mmap(null, size, std.posix.PROT.READ, .{ .TYPE = .SHARED }, self.file.handle, start));
     }
 
     pub fn unmap(self: *MemMapper, memory: anytype) void {
         _ = self;
-        _ = memory;
+        std.posix.munmap(@alignCast(memory));
     }
 };
