@@ -18,18 +18,16 @@ const MemMpperImpl = switch (builtin.os.tag) {
     else => @import("MemMapperPosix.zig").MemMapper,
 };
 
-pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapper {
-    return MemMapper.init(allocator, options);
+pub fn init(options: Options) !MemMapper {
+    return MemMapper.init(options);
 }
 
 pub const MemMapper = struct {
     impl: MemMpperImpl = undefined,
-    allocator: std.mem.Allocator,
     options: Options,
 
-    pub fn init(allocator: std.mem.Allocator, options: Options) !MemMapper {
+    pub fn init(options: Options) !MemMapper {
         var this: MemMapper = .{
-            .allocator = allocator,
             .options = options,
         };
         this.impl = (try MemMpperImpl.init(this));
@@ -52,9 +50,7 @@ pub const MemMapper = struct {
 const testing = std.testing;
 
 test "simple mapping for reading" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = general_purpose_allocator.allocator();
-    var mapper = try init(gpa, .{ .file_name = "test.txt" });
+    var mapper = try init(.{ .file_name = "test.txt" });
     defer mapper.deinit();
 
     const tst = try mapper.map(u8, 0, 0);
