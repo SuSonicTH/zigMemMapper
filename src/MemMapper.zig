@@ -3,6 +3,14 @@ const builtin = @import("builtin");
 
 pub const MemMapperError = error{
     CouldNotMapFile,
+    CouldNotMapRegion,
+};
+
+pub const Options = struct {
+    read: bool = true,
+    write: bool = false,
+    offset: usize = 0,
+    size: usize = 0,
 };
 
 pub fn init(file: std.fs.File, writeable: bool) !MemMapper {
@@ -38,13 +46,25 @@ const MemMapper = struct {
         }
     }
 
-    pub fn map(self: *MemMapper, comptime T: type, offset: usize, size: usize) ![]T {
-        const len = if (size != 0) size else (try self.file.metadata()).size();
+    pub fn map(self: *MemMapper, comptime T: type, options: Options) ![]T {
+        const len = if (options.size != 0) options.size else (try self.file.metadata()).size();
+
         if (builtin.os.tag == .windows) {
-            const ptr: [*]T = @ptrCast(MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, len));
-            return ptr[0..len];
+            var access: windows.DWORD = 0;
+            if (options.read) access |= FILE_MAP_READ;
+            if (options.write) access |= FILE_MAP_WRITE;
+
+            const ptr = MapViewOfFile(self.file_mapping, FILE_MAP_READ, 0, 0, len);
+            if (ptr == null) {
+                return MemMapperError.CouldNotMapRegion;
+            }
+            return @as([*]T, @ptrCast(ptr))[0..len];
         } else {
-            return @ptrCast(try std.posix.mmap(null, len, std.posix.PROT.READ, .{ .TYPE = .SHARED }, self.file.handle, offset));
+            var prot: u32 = 0;
+            if (options.read) prot |= std.posix.PROT.READ;
+            if (options.write) prot |= std.posix.PROT.WRITE;
+
+            return @ptrCast(try std.posix.mmap(null, len, prot, .{ .TYPE = .SHARED }, self.file.handle, options.offset));
         }
     }
 
@@ -64,7 +84,7 @@ const FILE_MAP_READ: windows.DWORD = 4;
 const FILE_MAP_WRITE: windows.DWORD = 2;
 
 extern "kernel32" fn CreateFileMappingA(hFile: windows.HANDLE, lpFileMappingAttributes: ?*windows.SECURITY_ATTRIBUTES, flProtect: windows.DWORD, dwMaximumSizeHigh: windows.DWORD, dwMaximumSizeLow: windows.DWORD, lpNam: ?windows.LPCSTR) callconv(windows.WINAPI) ?windows.HANDLE;
-extern "kernel32" fn MapViewOfFile(hFileMappingObject: windows.HANDLE, dwDesiredAccess: windows.DWORD, dwFileOffsetHigh: windows.DWORD, dwFileOffsetLow: windows.DWORD, dwNumberOfBytesToMa: windows.SIZE_T) callconv(windows.WINAPI) windows.LPVOID;
+extern "kernel32" fn MapViewOfFile(hFileMappingObject: windows.HANDLE, dwDesiredAccess: windows.DWORD, dwFileOffsetHigh: windows.DWORD, dwFileOffsetLow: windows.DWORD, dwNumberOfBytesToMa: windows.SIZE_T) callconv(windows.WINAPI) ?windows.LPVOID;
 extern "kernel32" fn UnmapViewOfFile(lpBaseAddress: windows.LPCVOID) callconv(windows.WINAPI) windows.BOOL;
 
 const CloseHandle = windows.kernel32.CloseHandle;
@@ -80,7 +100,7 @@ test "simple mapping for reading" {
     var mapper = try init(file, false);
     defer mapper.deinit();
 
-    const tst = try mapper.map(u8, 0, 0);
+    const tst = try mapper.map(u8, .{});
     defer mapper.unmap(tst);
 
     try testing.expectEqualStrings("This is a Test", tst);
