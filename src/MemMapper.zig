@@ -13,10 +13,6 @@ pub const Options = struct {
     size: usize = 0,
 };
 
-pub fn init(file: std.fs.File, writeable: bool) !MemMapper {
-    return MemMapper.init(file, writeable);
-}
-
 const MemMapper = struct {
     file: std.fs.File,
     file_mapping: windows.HANDLE = undefined,
@@ -97,7 +93,7 @@ test "simple mapping for reading" {
         .truncate = false,
         .exclusive = false,
     });
-    var mapper = try init(file, false);
+    var mapper = try MemMapper.init(file, false);
     defer mapper.deinit();
 
     const tst = try mapper.map(u8, .{});
