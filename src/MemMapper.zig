@@ -13,7 +13,7 @@ pub const Options = struct {
     size: usize = 0,
 };
 
-const MemMapper = struct {
+pub const MemMapper = struct {
     file: std.fs.File,
     file_mapping: windows.HANDLE = undefined,
 
