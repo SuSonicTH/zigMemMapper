@@ -83,7 +83,7 @@ extern "kernel32" fn CreateFileMappingA(hFile: windows.HANDLE, lpFileMappingAttr
 extern "kernel32" fn MapViewOfFile(hFileMappingObject: windows.HANDLE, dwDesiredAccess: windows.DWORD, dwFileOffsetHigh: windows.DWORD, dwFileOffsetLow: windows.DWORD, dwNumberOfBytesToMa: windows.SIZE_T) callconv(windows.WINAPI) ?windows.LPVOID;
 extern "kernel32" fn UnmapViewOfFile(lpBaseAddress: windows.LPCVOID) callconv(windows.WINAPI) windows.BOOL;
 
-const CloseHandle = windows.kernel32.CloseHandle;
+const CloseHandle = windows.CloseHandle;
 
 const testing = std.testing;
 
