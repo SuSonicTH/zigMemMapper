@@ -15,7 +15,7 @@ pub const Options = struct {
 
 pub const MemMapper = struct {
     file: std.fs.File,
-    file_mapping: windows.HANDLE = undefined,
+    file_mapping: windows.HANDLE,
 
     pub fn init(file: std.fs.File, writeable: bool) !MemMapper {
         if (builtin.os.tag == .windows) {
@@ -32,6 +32,8 @@ pub const MemMapper = struct {
         } else {
             return .{
                 .file = file,
+                // SAFETY: Unused on POSIX.
+                .file_mapping = undefined,
             };
         }
     }
@@ -43,7 +45,7 @@ pub const MemMapper = struct {
     }
 
     pub fn map(self: *MemMapper, comptime T: type, options: Options) ![]T {
-        const len = if (options.size != 0) options.size else (try self.file.metadata()).size();
+        const len = if (options.size != 0) options.size else (try self.file.stat()).size;
 
         if (builtin.os.tag == .windows) {
             var access: windows.DWORD = 0;

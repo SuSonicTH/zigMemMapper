@@ -1,9 +1,8 @@
 .{
-    .name = "MemMapper",
-    .version = "0.2.0",
-    .minimum_zig_version = "0.13.0",
-
-    .dependencies = .{},
+    .name = .MemMapper,
+    .version = "0.2.1",
+    .minimum_zig_version = "0.15.1",
+    .fingerprint = 0x3565737528070073,
 
     .paths = .{
         "build.zig",
